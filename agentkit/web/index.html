@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentKit</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 2rem auto; padding: 0 1rem; background-color: #f8f9fa; }
+        h1, h2 { color: #212529; }
+        h1 { border-bottom: 2px solid #dee2e6; padding-bottom: 0.5rem; }
+        .container { background-color: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .form-group { margin-bottom: 1.5rem; }
+        label { display: block; font-weight: 600; margin-bottom: 0.5rem; }
+        input[type="text"], select, textarea { width: 100%; padding: 0.75rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 1rem; }
+        textarea { min-height: 120px; font-family: monospace; }
+        button { background-color: #007bff; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; transition: background-color 0.2s; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        #log-container { margin-top: 2rem; background-color: #e9ecef; padding: 1rem; border-radius: 4px; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; max-height: 400px; overflow-y: auto; }
+        .log-entry { padding: 0.5rem; border-bottom: 1px solid #ced4da; }
+        .log-entry.success { background-color: #d4edda; }
+        .log-entry.failure { background-color: #f8d7da; }
+        .log-entry.running { background-color: #fff3cd; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AgentKit</h1>
+        <p>A vendor-agnostic framework for running AI agents.</p>
+
+        <div id="form-container">
+            <div class="form-group">
+                <label for="agent-select">Select Agent</label>
+                <select id="agent-select" name="agent"></select>
+            </div>
+            <div id="agent-details" class="hidden">
+                <p id="agent-description"></p>
+                <div class="form-group">
+                    <label for="model-id">Model ID</label>
+                    <input type="text" id="model-id" value="mock-model" placeholder="e.g., mock-model, gpt-4, etc.">
+                </div>
+                <div class="form-group">
+                    <label for="input-json">Input JSON</label>
+                    <textarea id="input-json" placeholder="Enter the input data as a JSON object."></textarea>
+                </div>
+                <button id="run-button">Run Agent</button>
+            </div>
+        </div>
+
+        <div id="results-container" class="hidden">
+            <h2>Run Results</h2>
+            <div id="log-container"></div>
+            <h3>Artifacts</h3>
+            <ul id="artifacts-list"></ul>
+            <button id="run-again-button">Run Another Agent</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = "http://127.0.0.1:8000";
+        let agents = [];
+
+        // DOM Elements
+        const agentSelect = document.getElementById('agent-select');
+        const agentDetails = document.getElementById('agent-details');
+        const agentDescription = document.getElementById('agent-description');
+        const inputJson = document.getElementById('input-json');
+        const modelIdInput = document.getElementById('model-id');
+        const runButton = document.getElementById('run-button');
+        const resultsContainer = document.getElementById('results-container');
+        const logContainer = document.getElementById('log-container');
+        const artifactsList = document.getElementById('artifacts-list');
+        const formContainer = document.getElementById('form-container');
+        const runAgainButton = document.getElementById('run-again-button');
+
+        // Load agents on page load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/agents`);
+                if (!response.ok) throw new Error('Failed to fetch agents.');
+                agents = await response.json();
+
+                agentSelect.innerHTML = '<option value="">-- Select an agent --</option>';
+                agents.forEach(agent => {
+                    const option = document.createElement('option');
+                    option.value = agent.id;
+                    option.textContent = agent.name;
+                    agentSelect.appendChild(option);
+                });
+            } catch (error) {
+                logContainer.innerHTML = `<div class="log-entry failure">Error: ${error.message}</div>`;
+            }
+        });
+
+        // Show agent details on selection
+        agentSelect.addEventListener('change', () => {
+            const selectedAgentId = agentSelect.value;
+            if (!selectedAgentId) {
+                agentDetails.classList.add('hidden');
+                return;
+            }
+
+            const agent = agents.find(a => a.id === selectedAgentId);
+            agentDescription.textContent = agent.description;
+
+            // Pre-fill textarea with example JSON based on schema
+            const properties = agent.input_schema.properties;
+            const exampleInput = {};
+            for (const key in properties) {
+                exampleInput[key] = `<${properties[key].type}>`;
+            }
+            inputJson.value = JSON.stringify(exampleInput, null, 2);
+
+            agentDetails.classList.remove('hidden');
+        });
+
+        // Run agent on button click
+        runButton.addEventListener('click', async () => {
+            const agentId = agentSelect.value;
+            const modelId = modelIdInput.value;
+            let inputData;
+
+            try {
+                inputData = JSON.parse(inputJson.value);
+            } catch (e) {
+                alert('Invalid JSON in input field.');
+                return;
+            }
+
+            if (!agentId || !modelId || !inputData) {
+                alert('Please fill all fields.');
+                return;
+            }
+
+            runButton.disabled = true;
+            runButton.textContent = 'Running...';
+            formContainer.classList.add('hidden');
+            resultsContainer.classList.remove('hidden');
+            logContainer.innerHTML = '<div class="log-entry running">Starting run...</div>';
+            artifactsList.innerHTML = '';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/run`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        agent_id: agentId,
+                        model_id: modelId,
+                        input: inputData,
+                    }),
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Run failed.');
+                }
+
+                displayResults(result);
+
+            } catch (error) {
+                logContainer.innerHTML += `<div class="log-entry failure">Error: ${error.message}</div>`;
+            } finally {
+                runButton.disabled = false;
+                runButton.textContent = 'Run Agent';
+            }
+        });
+
+        function displayResults(runStatus) {
+            logContainer.innerHTML = `<div class="log-entry ${runStatus.status === 'completed' ? 'success' : 'failure'}">Run ${runStatus.status}. (ID: ${runStatus.run_id})</div>`;
+
+            runStatus.steps.forEach(step => {
+                const stepDiv = document.createElement('div');
+                stepDiv.className = `log-entry ${step.status}`;
+                let content = `<strong>Step: ${step.step_id} (${step.status})</strong>`;
+                if (step.error_message) {
+                    content += `<br><pre>${step.error_message}</pre>`;
+                }
+                stepDiv.innerHTML = content;
+                logContainer.appendChild(stepDiv);
+            });
+
+            runStatus.artifacts.forEach(path => {
+                const li = document.createElement('li');
+                // This assumes artifacts are accessible relative to the run dir, which isn't true via API.
+                // For a real app, you'd need a GET /api/runs/{id}/artifacts/{path} endpoint.
+                // For this demo, we just list the paths.
+                li.textContent = path;
+                artifactsList.appendChild(li);
+            });
+        }
+
+        runAgainButton.addEventListener('click', () => {
+            resultsContainer.classList.add('hidden');
+            formContainer.classList.remove('hidden');
+            agentSelect.value = '';
+            agentDetails.classList.add('hidden');
+        });
+
+    </script>
+</body>
+</html>

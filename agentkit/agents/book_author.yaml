@@ -1,0 +1,81 @@
+id: book_author
+name: "Book Author"
+description: "Generates a brief, an outline, and a sample chapter."
+input_schema:
+  type: object
+  properties:
+    title: {type: string}
+    genre: {type: string}
+    description: {type: string}
+  required: [title, genre]
+defaults:
+  step_limit: 10
+  timeout_sec: 30
+steps:
+  - id: enrich_brief
+    prompt_template: |
+      Expand the idea.
+      Title: {{ title }}
+      Genre: {{ genre }}
+      Existing description: {{ description | default("N/A") }}
+      Return JSON with: { "description": "...", "style": {"tone":"...", "pov":"..."} }
+    expects:
+      type: json
+      schema:
+        type: object
+        properties:
+          description: {type: string}
+          style:
+            type: object
+            properties:
+              tone: {type: string}
+              pov: {type: string}
+            required: [tone, pov]
+        required: [description, style]
+    update_state:
+      description: $.description
+      style: $.style
+
+  - id: plan_outline
+    prompt_template: |
+      Using the refined description and style, create a 5-chapter outline.
+      Return JSON { "global_synopsis":"...", "chapters":[{"number":1,"title":"...","synopsis":"..."}] }
+      Title: {{ title }}
+      Genre: {{ genre }}
+      Description: {{ state.description }}
+    expects:
+      type: json
+      schema:
+        type: object
+        properties:
+          global_synopsis: {type: string}
+          chapters:
+            type: array
+            items:
+              type: object
+              properties:
+                number: {type: integer}
+                title: {type: string}
+                synopsis: {type: string}
+              required: [number, title, synopsis]
+        required: [global_synopsis, chapters]
+    update_state:
+      global_synopsis: $.global_synopsis
+      chapters: $.chapters
+    writes:
+      - path: "artifacts/00_plan.json"
+        from_json: "$"   # write full JSON of the step
+
+  - id: write_chapter_1
+    prompt_template: |
+      Write Chapter 1 as prose text.
+      Consider the global synopsis and chapter 1 synopsis.
+      Title: {{ title }}
+      Style: {{ state.style }}
+      Global: {{ state.global_synopsis }}
+      Chapter 1: {{ state.chapters[0].synopsis }}
+      End with a soft hook.
+    expects: { type: text }
+    writes:
+      - path: "artifacts/01_chapter_1.txt"
+        from_text: "$"

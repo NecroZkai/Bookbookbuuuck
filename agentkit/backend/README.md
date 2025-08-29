@@ -56,6 +56,34 @@ You should see the AgentKit web interface.
 
 ---
 
+## Using Real Model APIs (OpenAI Example)
+
+By default, the AgentKit uses a `mock-model` for offline testing. To connect to a real API like OpenAI, follow these steps:
+
+### 1. Set Your API Key
+
+You need to provide your API key as an environment variable. The recommended way to do this is to create a `.env` file in the root of the `agentkit` project.
+
+- Make a copy of `.env.example` and name it `.env`.
+- Open the `.env` file and add your OpenAI API key:
+
+```
+# .env
+OPENAI_API_KEY="sk-..."
+```
+The application will automatically load this variable when it starts.
+
+### 2. Select an OpenAI Model in the UI
+
+When you run an agent from the web interface, you can specify which model to use. To use the real OpenAI API, enter one of the supported OpenAI model IDs in the "Model ID" field, such as:
+- `gpt-4o`
+- `gpt-4-turbo`
+- `gpt-3.5-turbo`
+
+When the orchestrator receives one of these IDs, it will automatically use the `OpenAIModelClient` to make a real API call. Any other model ID will use the `MockModelClient` as a fallback.
+
+---
+
 ## How to Define a New Agent
 
 Agents are defined as `.yaml` files in the `agentkit/agents/` directory. The server automatically loads and validates all YAML files from this directory on startup.

@@ -5,3 +5,4 @@ httpx
 PyYAML
 Jinja2
 python-multipart
+openai

@@ -8,8 +8,9 @@ import json
 from jinja2 import Template
 
 from agentkit.backend import registry, storage
-from agentkit.backend.adapters.model_mock import MockModelClient
+from agentkit.backend.adapters import get_model_client
 from agentkit.backend.guards import guard_manager
+from agentkit.backend.models import ModelClient
 from agentkit.backend.schemas import (
     AgentDefinition, RunRequest, RunStatus, StepResult
 )
@@ -21,10 +22,6 @@ class Orchestrator:
     workflow, calling models and tools, and persisting state and artifacts.
     """
 
-    def __init__(self):
-        # In a real app, a factory would select the client based on model_id
-        self.model_client = MockModelClient()
-
     def run_agent(self, request: RunRequest) -> RunStatus:
         """The main entry point for executing an agent run."""
         run_id = f"{request.agent_id}-{uuid.uuid4().hex[:8]}"
@@ -33,6 +30,13 @@ class Orchestrator:
         agent_def = registry.get_agent(request.agent_id)
         if not agent_def:
             raise ValueError(f"Agent with ID '{request.agent_id}' not found.")
+
+        # Dynamically get the correct model client for this run
+        try:
+            model_client = get_model_client(request.model_id)
+        except ValueError as e:
+            # Re-raise as a more specific error for the API layer to catch
+            raise ValueError(f"Failed to initialize model client for '{request.model_id}': {e}")
 
         run_status = RunStatus(
             run_id=run_id,
@@ -44,7 +48,7 @@ class Orchestrator:
         )
 
         try:
-            self._execute_steps(run_status, agent_def)
+            self._execute_steps(run_status, agent_def, model_client)
             run_status.status = "completed"
         except Exception as e:
             run_status.status = "failed"
@@ -56,7 +60,7 @@ class Orchestrator:
         self._save_run_status(run_status)
         return run_status
 
-    def _execute_steps(self, run_status: RunStatus, agent_def: AgentDefinition):
+    def _execute_steps(self, run_status: RunStatus, agent_def: AgentDefinition, model_client: ModelClient):
         """Iterates through and executes each step of the agent's definition."""
         options = run_status.input.get("options") or agent_def.defaults
 
@@ -78,10 +82,10 @@ class Orchestrator:
 
                 # 2. Call the model
                 if step_def.expects.type == "text":
-                    raw_output = self.model_client.generate_text(prompt)
+                    raw_output = model_client.generate_text(prompt)
                     step_result.raw_output = raw_output
                 elif step_def.expects.type == "json":
-                    json_output = self.model_client.generate_json(prompt, step_def.expects.schema_def)
+                    json_output = model_client.generate_json(prompt, step_def.expects.schema_def)
                     step_result.json_output = json_output
                     step_result.raw_output = json.dumps(json_output, indent=2)
                 else:
